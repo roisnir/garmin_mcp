@@ -15,25 +15,27 @@ class TestParseTransportConfig:
             os.environ.pop("GARMIN_MCP_TRANSPORT", None)
             os.environ.pop("GARMIN_MCP_HOST", None)
             os.environ.pop("GARMIN_MCP_PORT", None)
-            transport, host, port = _parse_transport_config()
+            os.environ.pop("GARMIN_MCP_PATH", None)
+            transport, host, port, path = _parse_transport_config()
         assert transport == "stdio"
         assert host == "0.0.0.0"
         assert port == 8000
+        assert path == "/mcp"
 
     @pytest.mark.parametrize("value", list(_VALID_TRANSPORTS))
     def test_valid_transports_are_accepted(self, value):
         with patch.dict(os.environ, {"GARMIN_MCP_TRANSPORT": value}):
-            transport, _, _ = _parse_transport_config()
+            transport, *_ = _parse_transport_config()
         assert transport == value
 
     def test_transport_value_is_lowercased(self):
         with patch.dict(os.environ, {"GARMIN_MCP_TRANSPORT": "STDIO"}):
-            transport, _, _ = _parse_transport_config()
+            transport, *_ = _parse_transport_config()
         assert transport == "stdio"
 
     def test_transport_value_is_stripped(self):
         with patch.dict(os.environ, {"GARMIN_MCP_TRANSPORT": "  streamable-http  "}):
-            transport, _, _ = _parse_transport_config()
+            transport, *_ = _parse_transport_config()
         assert transport == "streamable-http"
 
     def test_invalid_transport_raises_value_error(self):
@@ -43,15 +45,31 @@ class TestParseTransportConfig:
 
     def test_custom_host_is_read(self):
         with patch.dict(os.environ, {"GARMIN_MCP_HOST": "127.0.0.1"}):
-            _, host, _ = _parse_transport_config()
+            _, host, _, _ = _parse_transport_config()
         assert host == "127.0.0.1"
 
     def test_custom_port_is_read(self):
         with patch.dict(os.environ, {"GARMIN_MCP_PORT": "9000"}):
-            _, _, port = _parse_transport_config()
+            _, _, port, _ = _parse_transport_config()
         assert port == 9000
 
     def test_invalid_port_raises(self):
         with patch.dict(os.environ, {"GARMIN_MCP_PORT": "not-a-number"}):
             with pytest.raises(ValueError):
                 _parse_transport_config()
+
+    def test_default_path_is_mcp(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GARMIN_MCP_PATH", None)
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp"
+
+    def test_custom_path_is_read(self):
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "/mcp-abc123"}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp-abc123"
+
+    def test_path_gets_leading_slash(self):
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "mcp-abc123"}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp-abc123"

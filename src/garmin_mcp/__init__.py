@@ -148,7 +148,7 @@ class _GarminProxy:
         return _call
 
 
-def _parse_transport_config() -> tuple[str, str, int]:
+def _parse_transport_config() -> tuple[str, str, int, str]:
     """Read and validate HTTP transport env vars. Raises ValueError on bad input."""
     transport = os.getenv("GARMIN_MCP_TRANSPORT", "stdio").strip().lower()
     if transport not in _VALID_TRANSPORTS:
@@ -158,7 +158,13 @@ def _parse_transport_config() -> tuple[str, str, int]:
         )
     http_host = os.getenv("GARMIN_MCP_HOST", "0.0.0.0")
     http_port = int(os.getenv("GARMIN_MCP_PORT", "8000"))
-    return transport, http_host, http_port
+    # Endpoint path for the HTTP transports (streamable-http/sse). Configurable
+    # so the server can be mounted behind a reverse proxy at a non-default,
+    # hard-to-guess path (a bearer-equivalent "secret URL"). Ignored by stdio.
+    http_path = os.getenv("GARMIN_MCP_PATH", "/mcp").strip()
+    if not http_path.startswith("/"):
+        http_path = "/" + http_path
+    return transport, http_host, http_port, http_path
 
 
 class _ToolFilter:
@@ -349,8 +355,9 @@ def main():
     #   GARMIN_MCP_TRANSPORT - stdio (default) | streamable-http | sse
     #   GARMIN_MCP_HOST      - bind address for HTTP transports (default 0.0.0.0)
     #   GARMIN_MCP_PORT      - bind port for HTTP transports (default 8000)
+    #   GARMIN_MCP_PATH      - endpoint path for HTTP transports (default /mcp)
     try:
-        transport, http_host, http_port = _parse_transport_config()
+        transport, http_host, http_port, http_path = _parse_transport_config()
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
@@ -385,7 +392,15 @@ def main():
 
     # Create the MCP app, wrapped so the env-var filter can drop tools.
     # host/port only matter for the HTTP transports; stdio ignores them.
-    fastmcp = FastMCP("Garmin Connect v1.0", host=http_host, port=http_port)
+    # streamable_http_path/sse_path make the HTTP endpoint mount at http_path
+    # (default "/mcp"); stdio ignores host/port/path.
+    fastmcp = FastMCP(
+        "Garmin Connect v1.0",
+        host=http_host,
+        port=http_port,
+        streamable_http_path=http_path,
+        sse_path=http_path,
+    )
     app = _ToolFilter(fastmcp, enabled_tools, disabled_tools)
     if enabled_tools:
         print(f"Tool filter: allowlist of {len(enabled_tools)} tool(s).", file=sys.stderr)
@@ -431,7 +446,7 @@ def main():
             return PlainTextResponse("ok")
 
         print(
-            f"Serving MCP over {transport} on {http_host}:{http_port}",
+            f"Serving MCP over {transport} on {http_host}:{http_port}{http_path}",
             file=sys.stderr,
         )
 
