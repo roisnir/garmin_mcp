@@ -161,9 +161,17 @@ def _parse_transport_config() -> tuple[str, str, int, str]:
     # Endpoint path for the HTTP transports (streamable-http/sse). Configurable
     # so the server can be mounted behind a reverse proxy at a non-default,
     # hard-to-guess path (a bearer-equivalent "secret URL"). Ignored by stdio.
-    http_path = os.getenv("GARMIN_MCP_PATH", "/mcp").strip()
-    if not http_path.startswith("/"):
-        http_path = "/" + http_path
+    # Normalize: strip whitespace and surrounding slashes, force a single
+    # leading slash, and fall back to "/mcp" for empty/"/"-only values (a
+    # root mount is never intended for this and would be a footgun).
+    core = os.getenv("GARMIN_MCP_PATH", "/mcp").strip().strip("/")
+    http_path = "/" + core if core else "/mcp"
+    if http_path == "/healthz":
+        # /healthz is registered as the health probe on HTTP transports; a
+        # secret path there would silently shadow it. Reject rather than surprise.
+        raise ValueError(
+            "GARMIN_MCP_PATH must not be '/healthz' (reserved for the health probe)"
+        )
     return transport, http_host, http_port, http_path
 
 

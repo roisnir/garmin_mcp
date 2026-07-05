@@ -73,3 +73,37 @@ class TestParseTransportConfig:
         with patch.dict(os.environ, {"GARMIN_MCP_PATH": "mcp-abc123"}):
             _, _, _, path = _parse_transport_config()
         assert path == "/mcp-abc123"
+
+    @pytest.mark.parametrize("value", ["", "/", "   ", "//"])
+    def test_empty_or_root_falls_back_to_mcp(self, value):
+        # A root/empty mount is never intended for a secret-path deployment and
+        # would be a footgun; fall back to the documented default instead.
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": value}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp"
+
+    def test_trailing_slash_is_stripped(self):
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "/mcp-secret/"}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp-secret"
+
+    def test_duplicate_leading_slashes_collapse(self):
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "//mcp-secret"}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp-secret"
+
+    def test_surrounding_whitespace_is_stripped(self):
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "  /mcp-secret  "}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/mcp-secret"
+
+    def test_healthz_path_is_rejected(self):
+        # /healthz is the reserved health-probe route on HTTP transports.
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "/healthz"}):
+            with pytest.raises(ValueError, match="healthz"):
+                _parse_transport_config()
+
+    def test_multisegment_path_is_preserved(self):
+        with patch.dict(os.environ, {"GARMIN_MCP_PATH": "/a/b-secret"}):
+            _, _, _, path = _parse_transport_config()
+        assert path == "/a/b-secret"
